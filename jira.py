@@ -5,12 +5,14 @@ import json
 import sys
 
 import requests
+from config import TOKEN_HEADERS
+from config import DOMAIN
 
 
 class jira_issue:
-    token_headers = {"Authorization": 'Bearer [个人主页申请的票据]'}
-    jira_domain = 'https://jira.[domain-host]'
-    #issuetypes 对应的名字，通过/rest/api/2/issue/createmeta 获取对应名字，因为英文或者其他的原因可能定义不一直，需要确认对应关系
+    # issuetypes
+    # 对应的名字，通过 /rest/api/2/issue/createmeta
+    # 获取对应名字，因为英文或者其他的原因可能定义不一直，需要确认对应关系
     type_epic = 'Epic'
     type_task = '任务'
     type_sub_task = '子任务'
@@ -20,20 +22,21 @@ class jira_issue:
         self.__project = project
         self.__keys_map = {}
         self.__name_mapper = {}
+        # 缓存已经创建的issue，防止重复创建
         self.__search_issue()
+        # 找到name和displayName的对应关系，因为导入的时候是通过displayName创建的
         self.__search_user()
+        self.token_headers = TOKEN_HEADERS
+        self.token_headers = DOMAIN
 
-    #rest api 接口地址 https://developer.atlassian.com/cloud/jira/platform/rest/v2/api-group-issues/#api-rest-api-2-issue-post
+    # rest api 接口地址 https://developer.atlassian.com/cloud/jira/platform/rest/v2/api-group-issues/#api-rest-api-2-issue-post
 
-    def import_csv(self, file, skip_line=1, epic_key=''):
+    def import_csv(self, file, skip_line=1):
         with open(file, 'r', newline='', encoding='utf-8') as f:
             count = 0
             reader = csv.reader(f)
             epic = ''
             task = ''
-            last_epic = epic
-            last_task = ''
-            task_key = ''
             for row in reader:
                 count += 1
                 if count <= skip_line:
@@ -43,9 +46,7 @@ class jira_issue:
                 sub_task = row[2].strip() if row[2] != '' else task  # 如果子任务没有些就是父任务
                 cost_hour = row[3].strip()
                 user = row[4].strip()
-                status = row[5].strip()
-                priority = row[6].strip()
-                print(epic, task, sub_task, cost_hour, user, status)
+                priority = row[5].strip()
 
                 if self.type_epic + epic not in self.__keys_map:
                     epic_key = self.create_epic(epic)
@@ -59,7 +60,7 @@ class jira_issue:
                 else:
                     task_key = self.__keys_map[self.type_task + task]
                 if self.type_sub_task + sub_task not in self.__keys_map:
-                    self.create_sub_task(task_key, sub_task, cost_hour, user, status, priority=priority)
+                    self.create_sub_task(task_key, sub_task, cost_hour, user, priority=priority)
 
         pass
 
@@ -121,7 +122,7 @@ class jira_issue:
         return payload['key']
         pass
 
-    def create_sub_task(self, task_key, sub_task, cost_hour, user, status, priority='Medium'):
+    def create_sub_task(self, task_key, sub_task, cost_hour, user, priority='Medium'):
         if cost_hour == '':
             cost_hour = '0'
         url = '%s/rest/api/2/issue' % self.jira_domain

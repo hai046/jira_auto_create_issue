@@ -231,5 +231,4 @@ if __name__ == '__main__':
     # for i in range(431, 436):
     #     t.delete_issue(i)
     # t.get_issues('ZSYY-842')
-    # t.import_csv('/Users/hai046/Downloads/2.6.0 迭代计划 - 2.6.0.csv')
     t.import_csv(path)

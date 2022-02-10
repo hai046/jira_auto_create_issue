@@ -22,12 +22,12 @@ class jira_issue:
         self.__project = project
         self.__keys_map = {}
         self.__name_mapper = {}
+        self.token_headers = TOKEN_HEADERS
+        self.jira_domain = DOMAIN
         # 缓存已经创建的issue，防止重复创建
         self.__search_issue()
         # 找到name和displayName的对应关系，因为导入的时候是通过displayName创建的
         self.__search_user()
-        self.token_headers = TOKEN_HEADERS
-        self.token_headers = DOMAIN
 
     # rest api 接口地址 https://developer.atlassian.com/cloud/jira/platform/rest/v2/api-group-issues/#api-rest-api-2-issue-post
 
@@ -43,7 +43,7 @@ class jira_issue:
                     continue
                 epic = row[0].strip() if row[0] != '' else epic
                 task = row[1].strip() if row[1] != '' else task
-                sub_task = row[2].strip() if row[2] != '' else task  # 如果子任务没有些就是父任务
+                sub_task = row[2].strip()
                 cost_hour = row[3].strip()
                 user = row[4].strip()
                 priority = row[5].strip()
@@ -55,11 +55,18 @@ class jira_issue:
                     epic_key = self.__keys_map[self.type_epic + epic]
 
                 if self.type_task + task not in self.__keys_map:
-                    task_key = self.create_task(epic_key, task)
+                    if sub_task == '':
+                        #如果子任务没有写，就附属在父任务上
+                        task_key = self.create_task(epic_key, task, cost_hour=cost_hour, user=user, priority=priority)
+                    else:
+                        task_key = self.create_task(epic_key, task)
                     self.__keys_map[self.type_task + task] = task_key
                 else:
                     task_key = self.__keys_map[self.type_task + task]
-                if self.type_sub_task + sub_task not in self.__keys_map:
+
+                if sub_task == '':
+                    continue
+                elif self.type_sub_task + sub_task not in self.__keys_map:
                     self.create_sub_task(task_key, sub_task, cost_hour, user, priority=priority)
 
         pass
@@ -99,24 +106,47 @@ class jira_issue:
         print(response.text)
         pass
 
-    def create_task(self, epic_key, task):
+    def create_task(self, epic_key, task, cost_hour='', user='', priority=''):
         url = '%s/rest/api/2/issue' % self.jira_domain
+        fields = {
+            "summary": '%s' % (task),
+            "project": {
+                "key": self.__project
+            },
+            "issuetype": {
+                "name": self.type_task
+            },
+            "versions": [
+                {'name': self.__version}
+            ],
+            # 需求列表【长篇故事中的事务】
+            'customfield_10101': epic_key,
+            "description": task,
+        }
+        if cost_hour != '':
+            fields['timetracking'] = {
+                "originalEstimate": "0m",
+                "remainingEstimate": "0m",
+                "originalEstimateSeconds": 0,
+                "remainingEstimateSeconds": 0
+            }
+            fields["customfield_10400"] = int(cost_hour) * 60
+
+        if user != '':
+            user = user.strip().replace('@', '').split('-')[0]
+            if user in self.__name_mapper:
+                # 映射中文名字到英文名
+                user = self.__name_mapper[user.strip()]
+                fields["assignee"] = {
+                    "name": user
+                }
+        if priority != '':
+            fields["priority"] = {
+                "name": priority
+            }
+
         response = requests.post(url, headers=self.token_headers, json={
-            "fields": {
-                "summary": '%s' % (task),
-                "project": {
-                    "key": self.__project
-                },
-                "issuetype": {
-                    "name": self.type_task
-                },
-                "versions": [
-                    {'name': self.__version}
-                ],
-                # 需求列表【长篇故事中的事务】
-                'customfield_10101': epic_key,
-                "description": task,
-            }})
+            "fields": fields})
         print(response.text)
         payload = json.loads(response.text)
         return payload['key']
@@ -126,9 +156,10 @@ class jira_issue:
         if cost_hour == '':
             cost_hour = '0'
         url = '%s/rest/api/2/issue' % self.jira_domain
+        user = user.strip().replace('@', '').split('-')[0]
         if user in self.__name_mapper:
             # 映射中文名字到英文名
-            user = self.__name_mapper[user]
+            user = self.__name_mapper[user.strip()]
         response = requests.post(url, headers=self.token_headers, json={
             "fields": {
                 "summary": '%s' % (sub_task),
@@ -214,7 +245,7 @@ class jira_issue:
         payload = json.loads(response.text)
         for user in payload:
             name = user['name']
-            displayName = str(user['displayName']).split('-')[0]
+            displayName = str(user['displayName']).replace('@', '').split('-')[0]
             self.__name_mapper[displayName] = name
         pass
 
